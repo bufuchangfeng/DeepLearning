@@ -7,6 +7,7 @@ from scipy.io import loadmat
 import numpy as np
 import pandas as pd
 from sklearn.utils import shuffle
+import copy
 
 
 def load_data():
@@ -56,17 +57,14 @@ class MNIST_DATASET(Dataset):
         self.x = x
         self.phase = phase
 
-        self.y = y if phase != 'test' else None
+        self.y = y
 
         self.transforms = transforms.Compose([
             transforms.ToTensor()
         ])
 
     def __getitem__(self, index):
-        if self.phase != 'test':
-            return self.x[index]
-        else:
-            return self.x[index], self.y[index]
+        return self.transforms(self.x[index].reshape(28, 28)), self.y[index]
 
     def __len__(self):
         return len(self.x)
@@ -80,13 +78,20 @@ class MNIST_LSTM(nn.Module):
         self.classifier = nn.Linear(hidden_dim, num_classes)
 
     def forward(self, x):
-        pass
+
+        # hidden = (torch.randn(2, 256, 256).double(),
+        #           torch.randn(2, 256, 256).double())
+
+        out, hidden = self.lstm(x)
+        out = out[-1, :, :]
+        x = self.classifier(out)
+        return x
 
 
 def main():
-    model = MNIST_LSTM(in_dim=784, hidden_dim=256, num_layers=2, num_classes=10)
-
+    model = MNIST_LSTM(in_dim=28, hidden_dim=256, num_layers=2, num_classes=10)
     model.to(DEVICE)
+    model.double()
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
@@ -107,10 +112,18 @@ def main():
                               batch_size=BATCH_SIZE,
                               shuffle=True)
 
+    best_model = None
+    best_acc = -1
+
     for epoch in range(EPOCHS):
         model.train()
-        for index, images, labels in enumerate(train_loader):
+        for index, (images, labels) in enumerate(train_loader):
+
+            images = torch.squeeze(images)
+            images = images.permute(1, 0, 2).double()
+
             images = images.to(DEVICE)
+
             labels = labels.to(DEVICE)
 
             optimizer.zero_grad()
@@ -120,9 +133,58 @@ def main():
             loss.backward()
             optimizer.step()
 
+            if index % 100 == 0:
+                print('Train Epoch [{}/{}], Loss: {:.4f}'
+                      .format(epoch + 1, EPOCHS, loss.item()))
+
         model.eval()
         with torch.no_grad():
-            test
+            valid_correct = 0
+            for images, labels in valid_loader:
 
+                images = torch.squeeze(images)
+                images = images.permute(1, 0, 2).double()
+
+                images = images.to(DEVICE)
+                labels = labels.to(DEVICE)
+
+                outputs = model(images)
+
+                _, predicted = torch.max(outputs, 1)
+
+                valid_correct += (predicted == labels).sum().item()
+
+            acc = 100.0 * valid_correct / len(valid_loader.dataset)
+
+            print("Epoch: {} The accuracy of total {} images: {}%".format(epoch + 1, len(valid_loader.dataset),
+                                                                      100.0 * valid_correct / len(valid_loader.dataset)))
+            if acc > best_acc:
+                best_acc = acc
+                best_model = copy.deepcopy(model)
+                print('get new model!')
+
+    model = copy.deepcopy(best_model)
+    model.to(DEVICE)
+    model.double()
+    with torch.no_grad():
+        test_correct = 0
+        for images, labels in test_loader:
+            images = torch.squeeze(images)
+            images = images.permute(1, 0, 2).double()
+
+            images = images.to(DEVICE)
+            labels = labels.to(DEVICE)
+
+            outputs = model(images)
+
+            _, predicted = torch.max(outputs, 1)
+
+            test_correct += (predicted == labels).sum().item()
+
+    print("The accuracy of total {} images: {}%".format(len(valid_loader.dataset),
+                                                                  100.0 * valid_correct / len(valid_loader.dataset)))
+
+
+# acc on test data 98.91666666666667%
 if __name__ == '__main__':
     main()

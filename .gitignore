@@ -1,3 +1,2 @@
 /.idea/
-/neural_machine_translation/__pycache__/
-/neural_machine_translation/seq2seq/__pycache__/
+/neural_machine_translation/.ipynb_ckeckpoints/
